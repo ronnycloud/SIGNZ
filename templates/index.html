@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SignVision – Sign Language Recognition System</title>
+    <!-- Google Fonts: Inter for clean typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Feather Icons for minimalist SVG icons -->
+    <script src="https://unpkg.com/feather-icons"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 1. Header -->
+        <header class="app-header">
+            <div class="header-brand">
+                <div class="brand-logo">
+                    <i data-feather="eye"></i>
+                </div>
+                <div class="brand-text">
+                    <h1 class="brand-title">SignVision</h1>
+                    <span class="brand-subtitle">Sign Language Recognition System</span>
+                </div>
+            </div>
+            <div class="header-actions">
+                <span class="system-badge">System Ready</span>
+            </div>
+        </header>
+
+        <div class="app-body">
+            <!-- 2. Left Sidebar -->
+            <aside class="app-sidebar">
+                <nav class="sidebar-nav">
+                    <a href="#" class="nav-item active">
+                        <i data-feather="home"></i>
+                        <span>Home</span>
+                    </a>
+                    <a href="#" class="nav-item">
+                        <i data-feather="book-open"></i>
+                        <span>Alphabet Guide</span>
+                    </a>
+                    <a href="#" class="nav-item">
+                        <i data-feather="clock"></i>
+                        <span>History</span>
+                    </a>
+                    <a href="#" class="nav-item">
+                        <i data-feather="settings"></i>
+                        <span>Settings</span>
+                    </a>
+                    <a href="#" class="nav-item">
+                        <i data-feather="info"></i>
+                        <span>About</span>
+                    </a>
+                </nav>
+            </aside>
+
+            <!-- 3. Main Content Area -->
+            <main class="app-main">
+                <div class="video-card">
+                    <!-- 16:9 Aspect Ratio Container -->
+                    <div class="video-container">
+                        <!-- Live Video Feed -->
+                        <img src="{{ url_for('video_feed') }}" id="videoStream" alt="Live Camera Stream" class="video-feed">
+
+                        <!-- 4. Real-Time Recognition Overlay -->
+                        <div class="overlay-live">
+                            <span class="live-dot"></span>
+                            <span class="live-text">LIVE</span>
+                        </div>
+
+                        <div class="overlay-subtitle-container">
+                            <p class="subtitle-text" id="subtitleText">Listening for sign gestures...</p>
+                        </div>
+                    </div>
+
+                    <!-- 5. Status Bar -->
+                    <div class="status-bar">
+                        <div class="status-left">
+                            <span class="status-indicator"></span>
+                            <span class="status-label" id="statusLabel">Listening...</span>
+                        </div>
+                        <div class="status-right">
+                            <span class="fps-counter" id="fpsCounter">FPS: 30.0</span>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        feather.replace();
+    </script>
+</body>
+</html>

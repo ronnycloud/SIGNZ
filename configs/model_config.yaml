@@ -1,0 +1,81 @@
+# =============================================================================
+# MTAN-SLR Model Configuration
+# =============================================================================
+# Defines architecture hyperparameters for all model variants.
+# The 'active_model' key selects which architecture to use.
+
+active_model: "bilstm_attention"  # Options: bilstm_attention, transformer, cnn_lstm, baseline_lstm
+
+# ---------------------------------------------------------------------------
+# Feature dimensions (computed from MediaPipe extraction)
+# ---------------------------------------------------------------------------
+features:
+  hand_dim: 126          # 21 landmarks × 3 coords × 2 hands
+  pose_dim: 100          # 25 upper-body landmarks × 4 (x, y, z, visibility)
+  velocity_dim: 226      # Same as hand_dim + pose_dim (delta features)
+  hand_flags_dim: 2      # Left/right hand presence booleans
+  total_dim: 454         # hand_dim + pose_dim + velocity_dim + hand_flags_dim
+
+# ---------------------------------------------------------------------------
+# Primary model: BiLSTM + Cross-Modal Attention
+# ---------------------------------------------------------------------------
+bilstm_attention:
+  # Hand stream BiLSTM
+  hand_input_dim: 126
+  hand_hidden_dim: 64     # Per direction → 128 total
+  hand_num_layers: 2
+  hand_dropout: 0.3
+
+  # Pose stream BiLSTM
+  pose_input_dim: 100
+  pose_hidden_dim: 32     # Per direction → 64 total
+  pose_num_layers: 1
+  pose_dropout: 0.2
+
+  # Cross-modal attention
+  cross_attn_heads: 4
+  cross_attn_dropout: 0.1
+
+  # Temporal self-attention
+  temporal_attn_heads: 4
+  temporal_attn_dropout: 0.1
+
+  # Classifier head
+  classifier_hidden: 128
+  classifier_dropout: 0.3
+
+# ---------------------------------------------------------------------------
+# Alternative: Transformer Encoder
+# ---------------------------------------------------------------------------
+transformer:
+  input_dim: 454
+  d_model: 256
+  nhead: 8
+  num_layers: 4
+  dim_feedforward: 512
+  dropout: 0.1
+  max_seq_len: 120
+  classifier_hidden: 128
+  classifier_dropout: 0.3
+
+# ---------------------------------------------------------------------------
+# Alternative: CNN-LSTM Hybrid
+# ---------------------------------------------------------------------------
+cnn_lstm:
+  input_dim: 454
+  cnn_channels: [64, 128, 128]
+  cnn_kernels: [3, 5, 7]
+  lstm_hidden: 128
+  lstm_layers: 2
+  lstm_dropout: 0.3
+  classifier_hidden: 128
+  classifier_dropout: 0.3
+
+# ---------------------------------------------------------------------------
+# Alternative: Baseline LSTM (reproduces current system)
+# ---------------------------------------------------------------------------
+baseline_lstm:
+  input_dim: 454
+  hidden_dims: [64, 128, 64]
+  dense_dims: [64, 32]
+  dropout: 0.2

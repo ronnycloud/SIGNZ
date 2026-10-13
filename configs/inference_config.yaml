@@ -1,0 +1,47 @@
+# =============================================================================
+# MTAN-SLR Inference & Deployment Configuration
+# =============================================================================
+
+inference:
+  model_path: "checkpoints/best_model.pt"
+  onnx_path: "checkpoints/model.onnx"
+  use_onnx: false              # Use ONNX Runtime instead of PyTorch
+  device: "auto"               # auto, cuda, cpu
+  confidence_threshold: 0.7    # Minimum confidence for sign detection
+  max_buffer_length: 90        # Maximum frames in temporal buffer
+
+segmentation:
+  segmenter_path: "checkpoints/segmenter.pt"
+  boundary_threshold: 0.5      # Probability threshold for boundary detection
+  min_gesture_frames: 10       # Minimum frames to consider a gesture
+  max_gesture_frames: 90       # Maximum frames for a single gesture
+  use_energy_fallback: true    # Use velocity-based heuristic if no trained segmenter
+
+nlp:
+  model_name: "t5-small"
+  model_path: "checkpoints/t5_sign2sentence"
+  max_input_length: 64
+  max_output_length: 128
+  use_grammar_fallback: true   # Use rule-based grammar if T5 unavailable
+
+camera:
+  device_id: 0
+  width: 640
+  height: 480
+  fps: 30
+
+mediapipe:
+  min_detection_confidence: 0.5
+  min_tracking_confidence: 0.5
+  model_complexity: 1          # 0=lite, 1=full, 2=heavy
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins: ["*"]
+
+visualization:
+  show_landmarks: true
+  show_probabilities: true
+  show_sentence: true
+  show_fps: true

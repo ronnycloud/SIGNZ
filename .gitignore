@@ -1,0 +1,79 @@
+# =============================================================================
+# Python & Bytecode
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# =============================================================================
+# Virtual Environments (DO NOT COMMIT ~1.5GB venv)
+# =============================================================================
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# =============================================================================
+# Datasets & Heavy Media Files (GitHub has a 100MB file limit)
+# =============================================================================
+# WLASL video files (~480MB+)
+WLASL/start_kit/raw_videos/
+WLASL/start_kit/videos/
+*.mp4
+*.webm
+*.avi
+*.mov
+*.mkv
+
+# Extracted landmarks & large feature matrices (.npy arrays)
+MP_Data/
+dataset/MP_Data/
+*.npy
+*.npz
+
+# Keep dataset folder structure tracked
+!dataset/.gitkeep
+
+# =============================================================================
+# Model Checkpoints & Large Weights
+# (Host weights on GitHub Releases or Hugging Face instead)
+# =============================================================================
+checkpoints/*.pt
+checkpoints/*.pth
+checkpoints/*.onnx
+checkpoints/*.h5
+checkpoints/*.bin
+checkpoints/*.tar.gz
+!checkpoints/.gitkeep
+
+# =============================================================================
+# Secrets & Environment Variables
+# =============================================================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# =============================================================================
+# Training Logs, Profiling & Runs
+# =============================================================================
+*.log
+runs/
+logs/
+wandb/
+
+# =============================================================================
+# Operating System & IDE Artifacts
+# =============================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
