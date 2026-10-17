@@ -32,10 +32,13 @@ app = Flask(__name__)
 # Global Pipeline State
 CAMERA = None
 PREDICTION_STATE = {
-    "subtitle": "Listening for sign gestures...",
+    "subtitle": "",
+    "glosses": [],
     "fps": 30.0,
-    "status": "Listening...",
+    "status": "Ready",
     "is_active": True,
+    "is_final": False,
+    "fade_out": False,
 }
 
 
@@ -102,11 +105,16 @@ def generate_frames() -> Generator[bytes, None, None]:
     buffer = []
     sentence_signs = []
     predictions_history = []
-    confidence_threshold = 0.15
+    confidence_threshold = 0.35
     max_buf_len = 90
     frame_counter = 0
 
     prev_time = time.time()
+    last_sign_time = time.time()
+    sentence_finalized = False
+    finalized_time = 0.0
+    DISPLAY_DURATION = 3.5   # Subtitle remains visible for 3.5s after completion
+    FADE_OUT_DURATION = 0.6  # Fade out period before removal
 
     if cap is not None:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -121,11 +129,12 @@ def generate_frames() -> Generator[bytes, None, None]:
                 if not success or frame is None:
                     frame = None
 
+            now = time.time()
+
             # Fallback Synthetic Demo Stream if hardware webcam is unavailable
             if frame is None:
                 frame_counter += 1
                 frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                # Background gradient
                 cv2.rectangle(frame, (0, 0), (640, 480), (15, 23, 42), -1)
 
                 # Draw animated simulated hands and grid
@@ -133,7 +142,6 @@ def generate_frames() -> Generator[bytes, None, None]:
                 x_center = int(320 + 80 * np.sin(t))
                 y_center = int(240 + 40 * np.cos(t))
 
-                # Draw simulated skeleton joints
                 cv2.circle(frame, (x_center, y_center), 12, (16, 185, 129), -1)
                 cv2.line(frame, (320, 380), (x_center, y_center), (226, 232, 240), 3)
 
@@ -152,18 +160,54 @@ def generate_frames() -> Generator[bytes, None, None]:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (100, 116, 139), 1, cv2.LINE_AA
                 )
 
-                # Simulated gesture prediction cycle
-                cycle_sec = int(frame_counter / 30) % 3
-                simulated_sign = actions[cycle_sec]
-                if not sentence_signs or sentence_signs[-1] != simulated_sign:
-                    sentence_signs.append(simulated_sign)
-                    if len(sentence_signs) > 5:
-                        sentence_signs = sentence_signs[-5:]
-                    PREDICTION_STATE["subtitle"] = translator(sentence_signs)
+                # Simulated gesture cycle: sign 2 gestures, pause, finalize, disappear
+                demo_cycle = (frame_counter // 40) % 5
+                demo_actions = ["hello", "thanks"]
+                if demo_cycle < len(demo_actions):
+                    simulated_sign = demo_actions[demo_cycle]
+                    if sentence_finalized:
+                        sentence_signs = []
+                        sentence_finalized = False
+                        PREDICTION_STATE["is_final"] = False
+                        PREDICTION_STATE["fade_out"] = False
+
+                    if not sentence_signs or sentence_signs[-1] != simulated_sign:
+                        sentence_signs.append(simulated_sign)
+                        last_sign_time = now
+                        PREDICTION_STATE["subtitle"] = translator(sentence_signs)
+                        PREDICTION_STATE["glosses"] = list(sentence_signs)
+                        PREDICTION_STATE["is_final"] = False
+                        PREDICTION_STATE["fade_out"] = False
+                        PREDICTION_STATE["status"] = f"Signing: {simulated_sign}"
+                else:
+                    # Simulating pause
+                    if sentence_signs and not sentence_finalized:
+                        sentence_finalized = True
+                        finalized_time = now
+                        PREDICTION_STATE["subtitle"] = translator(sentence_signs)
+                        PREDICTION_STATE["glosses"] = list(sentence_signs)
+                        PREDICTION_STATE["is_final"] = True
+                        PREDICTION_STATE["fade_out"] = False
+                        PREDICTION_STATE["status"] = "Sentence generated"
+
+                if sentence_finalized:
+                    elapsed = now - finalized_time
+                    if elapsed >= DISPLAY_DURATION:
+                        PREDICTION_STATE["subtitle"] = ""
+                        PREDICTION_STATE["glosses"] = []
+                        PREDICTION_STATE["is_final"] = False
+                        PREDICTION_STATE["fade_out"] = False
+                        PREDICTION_STATE["status"] = "Ready"
+                        sentence_signs = []
+                        sentence_finalized = False
+                    elif elapsed >= (DISPLAY_DURATION - FADE_OUT_DURATION):
+                        PREDICTION_STATE["fade_out"] = True
 
             else:
                 # Hardware camera processing
                 results = extractor.process_frame(frame)
+                hands_present = bool(results["left_present"] or results["right_present"])
+
                 norm_frame = normalizer.normalize_frame(
                     results["left_hand"],
                     results["right_hand"],
@@ -181,7 +225,8 @@ def generate_frames() -> Generator[bytes, None, None]:
 
                 frame = extractor.draw_landmarks(frame, results)
 
-                if len(buffer) >= 10:
+                # Only predict when hands are actually detected in frame
+                if hands_present and len(buffer) >= 10:
                     seq_tensor = torch.tensor(np.array(buffer), dtype=torch.float32).unsqueeze(0).to(device)
                     mask = torch.ones(1, len(buffer), dtype=torch.bool, device=device)
 
@@ -196,29 +241,73 @@ def generate_frames() -> Generator[bytes, None, None]:
                     if len(predictions_history) > 10:
                         predictions_history = predictions_history[-10:]
 
-                    # Show current prediction and confidence on the video frame
+                    # Visual feedback on camera frame
                     current_label = actions[best_idx] if best_idx < len(actions) else "?"
-                    debug_text = f"Pred: {current_label} ({best_prob:.1%})"
+                    color = (16, 185, 129) if best_prob > confidence_threshold else (148, 163, 184)
+                    debug_text = f"Sign: {current_label} ({best_prob:.1%})"
                     cv2.putText(
                         frame, debug_text, (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2, cv2.LINE_AA
                     )
                     PREDICTION_STATE["status"] = debug_text
 
-                    # Stability check: most common prediction in last 5 must match current
+                    # Temporal consensus: at least 3 occurrences in last 5 frames
                     recent = predictions_history[-5:]
                     if len(recent) >= 3:
                         from collections import Counter
                         mode_idx, mode_count = Counter(recent).most_common(1)[0]
                         if mode_idx == best_idx and mode_count >= 3 and best_prob > confidence_threshold:
                             sign_label = actions[best_idx]
+
+                            # Starting a new sentence after previous was completed
+                            if sentence_finalized:
+                                sentence_signs = []
+                                sentence_finalized = False
+                                PREDICTION_STATE["is_final"] = False
+                                PREDICTION_STATE["fade_out"] = False
+
                             if not sentence_signs or sentence_signs[-1] != sign_label:
                                 sentence_signs.append(sign_label)
-                                if len(sentence_signs) > 6:
-                                    sentence_signs = sentence_signs[-6:]
+                                last_sign_time = now
+                                if len(sentence_signs) > 8:
+                                    sentence_signs = sentence_signs[-8:]
 
                                 translated_text = translator(sentence_signs)
                                 PREDICTION_STATE["subtitle"] = translated_text
+                                PREDICTION_STATE["glosses"] = list(sentence_signs)
+                                PREDICTION_STATE["is_final"] = False
+                                PREDICTION_STATE["fade_out"] = False
+                else:
+                    if not hands_present:
+                        PREDICTION_STATE["status"] = "Listening (hands down)..."
+
+                # Check sentence completion: user paused signing or lowered hands for ~1.3s
+                if sentence_signs and not sentence_finalized:
+                    pause_delay = 1.0 if not hands_present else 1.4
+                    if (now - last_sign_time) >= pause_delay:
+                        # Finalize the sentence!
+                        sentence_finalized = True
+                        finalized_time = now
+                        final_sentence = translator(sentence_signs)
+                        PREDICTION_STATE["subtitle"] = final_sentence
+                        PREDICTION_STATE["glosses"] = list(sentence_signs)
+                        PREDICTION_STATE["is_final"] = True
+                        PREDICTION_STATE["fade_out"] = False
+                        PREDICTION_STATE["status"] = "Sentence generated"
+
+                # Disappearance lifecycle: hold for DISPLAY_DURATION, fade out, then clear
+                if sentence_finalized:
+                    elapsed = now - finalized_time
+                    if elapsed >= DISPLAY_DURATION:
+                        PREDICTION_STATE["subtitle"] = ""
+                        PREDICTION_STATE["glosses"] = []
+                        PREDICTION_STATE["is_final"] = False
+                        PREDICTION_STATE["fade_out"] = False
+                        PREDICTION_STATE["status"] = "Ready"
+                        sentence_signs = []
+                        sentence_finalized = False
+                    elif elapsed >= (DISPLAY_DURATION - FADE_OUT_DURATION):
+                        PREDICTION_STATE["fade_out"] = True
 
             # FPS calculation
             curr_time = time.time()
