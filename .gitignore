@@ -40,7 +40,6 @@ dataset/MP_Data/
 
 # =============================================================================
 # Model Checkpoints & Large Weights
-# (Host weights on GitHub Releases or Hugging Face instead)
 # =============================================================================
 checkpoints/*.pt
 checkpoints/*.pth
@@ -49,6 +48,9 @@ checkpoints/*.h5
 checkpoints/*.bin
 checkpoints/*.tar.gz
 !checkpoints/.gitkeep
+!checkpoints/label_map.json
+# Track the production 100-class model checkpoint (6.45MB) for out-of-the-box deployment
+!checkpoints/best_model.pt
 
 # =============================================================================
 # Secrets & Environment Variables
@@ -70,9 +72,11 @@ wandb/
 # =============================================================================
 # Operating System & IDE Artifacts
 # =============================================================================
+._*
 .DS_Store
 Thumbs.db
 desktop.ini
+
 .vscode/
 .idea/
 *.sublime-project
