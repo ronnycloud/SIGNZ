@@ -190,14 +190,27 @@ def create_dataloaders(
     )
 
     total = len(dataset)
-    train_n = int(total * train_split)
-    val_n = int(total * val_split)
-    test_n = total - train_n - val_n
+    if total < 5:
+        train_ds = dataset
+        val_ds = dataset
+        test_ds = dataset
+    else:
+        val_n = max(1, int(total * val_split))
+        test_n = max(1, int(total * test_split)) if total >= 10 else 0
+        train_n = total - val_n - test_n
+        if train_n <= 0:
+            train_n = max(1, total - val_n)
+            test_n = 0
 
-    generator = torch.Generator().manual_seed(seed)
-    train_ds, val_ds, test_ds = random_split(
-        dataset, [train_n, val_n, test_n], generator=generator
-    )
+        generator = torch.Generator().manual_seed(seed)
+        splits = [train_n, val_n] if test_n == 0 else [train_n, val_n, test_n]
+        split_res = random_split(dataset, splits, generator=generator)
+        if test_n == 0:
+            train_ds, val_ds = split_res
+            test_ds = val_ds
+        else:
+            train_ds, val_ds, test_ds = split_res
+
 
     train_loader = DataLoader(
         train_ds,

@@ -23,6 +23,7 @@ from src.features.normalizer import LandmarkNormalizer
 from src.features.velocity import VelocityComputer
 from src.models import build_model_from_config
 from src.nlp.sign_to_sentence import SignToSentenceTranslator
+from src.data.vocabulary import ACTION_IDS
 from src.utils.logger import get_logger
 
 logger = get_logger("SignVision_App")
@@ -50,8 +51,9 @@ def load_model_and_config():
         model_cfg = yaml.safe_load(f)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    actions = ["hello", "thanks", "iloveyou"]
+    actions = list(ACTION_IDS)
     active_model = model_cfg.get("active_model", "bilstm_attention")
+
 
     if os.path.exists(ckpt_path):
         checkpoint = torch.load(ckpt_path, map_location=device)

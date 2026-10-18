@@ -104,16 +104,36 @@ Interactive API documentation will be available at `http://localhost:8000/docs`.
 
 ---
 
-## 🏋️ Model Training
+## 🏋️ Model Training & Custom Dataset
 
-### Option A: Custom Gesture Collection
-1. Run data collection to record custom gestures via webcam:
+### Option A: 100-Word Core ASL Gesture Collection
+Collect 5 video sequences (30 frames each) across 10 categories (Common Signs, Home, Food, People, Questions, School, Time, Family, Colors & Animals, Descriptions & Conversational):
+
+1. **Collect all words with interactive visual countdown & progress UI:**
    ```bash
-   python 1_collect_data.py
+   python 1_collect_data.py --num_videos 5 --sequence_length 30
    ```
-2. Train the model:
+2. **Collect only a specific category or word:**
    ```bash
-   python train.py --epochs 50 --batch_size 16
+   # Collect only the Food category
+   python 1_collect_data.py --category Food
+
+   # Collect a single sign
+   python 1_collect_data.py --action bathroom
+
+   # Resume from a specific sign
+   python 1_collect_data.py --start_from teacher
+   ```
+   *Controls during recording:* `'q'` to save & quit, `'s'` to skip, `'r'` to redo, `'p'` to pause.
+
+3. **Train PyTorch Multi-Stream Temporal Attention Network (MTAN-SLR):**
+   ```bash
+   python train.py --data_dir dataset/MP_Data --epochs 50 --batch_size 16
+   ```
+
+4. **Or train baseline Keras LSTM:**
+   ```bash
+   python 2_train_model.py --epochs 200 --batch_size 16
    ```
 
 ### Option B: WLASL Dataset

@@ -19,15 +19,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.models import build_model_from_config
 from src.nlp.sign_to_sentence import SignToSentenceTranslator
+from src.data.vocabulary import ACTION_IDS
 from src.utils.logger import get_logger
 
 logger = get_logger("MTAN_API")
 
 # Global state variables
 MODEL = None
-ACTIONS = ["hello", "thanks", "i" , "water"]
+ACTIONS = list(ACTION_IDS)
 TRANSLATOR = None
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 
 class SequencePredictRequest(BaseModel):
