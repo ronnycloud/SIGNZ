@@ -1,77 +1,78 @@
 """
 SignVision - Real-Time Action Detection & Subtitle System
 =========================================================
-Runs real-time webcam inference using the trained Keras LSTM model (action.h5)
-with MediaPipe Holistic landmarks, top-5 confidence display, and real-time
-NLP grammar correction for natural English subtitles.
+Runs real-time webcam inference using the trained PyTorch MTAN-SLR model
+(checkpoints/best_model.pt) with MediaPipe Holistic landmarks, top-5 confidence
+display, and real-time NLP grammar correction for natural English subtitles.
 """
 
 import os
 import sys
 import json
+import time
 import cv2
 import numpy as np
 import mediapipe as mp
-from tensorflow.keras.models import load_model
+import torch
+import yaml
 
-from utils import mediapipe_detection, draw_styled_landmarks, extract_keypoints
+from utils import mediapipe_detection, draw_styled_landmarks
+from src.features.normalizer import LandmarkNormalizer
+from src.features.velocity import VelocityComputer
+from src.models import build_model_from_config
 from src.data.vocabulary import ACTION_IDS, get_display_name
 from src.nlp.grammar_corrector import GrammarCorrector
 
 
-def load_actions(labels_path="action_labels.json"):
-    """Load action labels saved during training or fallback to standard vocabulary."""
-    if os.path.exists(labels_path):
-        try:
-            with open(labels_path, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-                if isinstance(loaded, list) and len(loaded) > 0:
-                    return np.array(loaded)
-        except Exception:
-            pass
-    return np.array(ACTION_IDS)
+def load_model_and_classes(model_path="checkpoints/best_model.pt", config_path="configs/model_config.yaml"):
+    """Loads the trained PyTorch model and action class list."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model checkpoint '{model_path}' not found. Please run 'python train.py' first.")
+
+    with open(config_path, "r", encoding="utf-8") as f:
+        model_cfg = yaml.safe_load(f)
+
+    checkpoint = torch.load(model_path, map_location=device)
+    actions = checkpoint.get("actions", checkpoint.get("classes", list(ACTION_IDS)))
+    active_model = checkpoint.get("active_model", model_cfg.get("active_model", "bilstm_attention"))
+    model_cfg["active_model"] = active_model
+
+    model = build_model_from_config(model_cfg, num_classes=len(actions))
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.to(device)
+    model.eval()
+
+    return model, actions, device
 
 
-def get_dynamic_colors(num_classes):
-    """Generate distinct visually appealing BGR colors for visualization."""
-    np.random.seed(42)
-    colors = []
-    for _ in range(num_classes):
-        colors.append((
-            int(np.random.randint(50, 240)),
-            int(np.random.randint(80, 255)),
-            int(np.random.randint(50, 240)),
-        ))
-    return colors
-
-
-def prob_viz_top5(res, actions, input_frame, top_k=5):
+def prob_viz_top5(probs, actions, input_frame, top_k=5):
     """Draw confidence bars for top-k predicted classes in an overlay."""
     output_frame = input_frame.copy()
-    top_indices = np.argsort(res)[::-1][:top_k]
+    top_indices = np.argsort(probs)[::-1][:top_k]
 
     h, w = output_frame.shape[:2]
-    # Transparent dark side panel for top predictions
     panel = output_frame.copy()
-    cv2.rectangle(panel, (w - 230, 50), (w - 10, 50 + top_k * 36 + 10), (15, 23, 42), -1)
+    cv2.rectangle(panel, (w - 240, 50), (w - 10, 50 + top_k * 36 + 12), (15, 23, 42), -1)
     cv2.addWeighted(panel, 0.75, output_frame, 0.25, 0, output_frame)
 
     for i, idx in enumerate(top_indices):
-        prob = float(res[idx])
+        prob = float(probs[idx])
         action_name = get_display_name(actions[idx]) if idx < len(actions) else "Unknown"
-        bar_len = int(prob * 140)
+        bar_len = int(prob * 150)
         y = 75 + i * 36
 
         # Probability bar
-        bar_color = (16, 185, 129) if i == 0 and prob > 0.4 else (148, 163, 184)
-        cv2.rectangle(output_frame, (w - 220, y - 14), (w - 220 + bar_len, y - 2), bar_color, -1)
+        bar_color = (16, 185, 129) if i == 0 and prob > 0.35 else (148, 163, 184)
+        cv2.rectangle(output_frame, (w - 230, y - 14), (w - 230 + bar_len, y - 2), bar_color, -1)
 
         # Label and percentage
         text = f"{action_name[:12]}: {prob:.0%}"
         cv2.putText(
             output_frame,
             text,
-            (w - 220, y + 14),
+            (w - 230, y + 14),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.45,
             (255, 255, 255),
@@ -82,21 +83,26 @@ def prob_viz_top5(res, actions, input_frame, top_k=5):
     return output_frame
 
 
-def run_realtime(model_path="action.h5", threshold=0.5):
+def run_realtime(model_path="checkpoints/best_model.pt", threshold=0.35):
     """Main real-time detection loop."""
-    if not os.path.exists(model_path):
-        print(f"[Error] Model '{model_path}' not found. Please train first with 2_train_model.py or train.py.")
-        return
+    print("=" * 60)
+    print("SignVision Real-Time Recognition (100 ASL Vocabulary)")
+    print(f"Loading model from '{model_path}'...")
 
-    actions = load_actions()
-    print(f"[Inference] Loaded {len(actions)} classes. Loading model '{model_path}'...")
-    model = load_model(model_path)
+    model, actions, device = load_model_and_classes(model_path)
+    print(f"Model loaded successfully on {device} with {len(actions)} classes.")
+
+    normalizer = LandmarkNormalizer()
+    velocity_computer = VelocityComputer()
     grammar = GrammarCorrector()
 
-    sequence = []
+    buffer = []
     sentence_signs = []
     formatted_sentence = ""
-    predictions = []
+    predictions_history = []
+    max_buf_len = 60
+    last_sign_time = time.time()
+    sentence_finalized = False
 
     cap = None
     if sys.platform.startswith("win"):
@@ -113,8 +119,6 @@ def run_realtime(model_path="action.h5", threshold=0.5):
 
     mp_holistic = mp.solutions.holistic
 
-    print("=" * 60)
-    print("SignVision Real-Time Recognition Started")
     print("Controls: 'q' = Quit | 'r' = Clear sentence")
     print("=" * 60)
 
@@ -124,47 +128,81 @@ def run_realtime(model_path="action.h5", threshold=0.5):
             if not ret:
                 break
 
+            now = time.time()
             image, results = mediapipe_detection(frame, holistic)
             draw_styled_landmarks(image, results)
 
-            keypoints = extract_keypoints(results)
-            sequence.append(keypoints)
-            sequence = sequence[-30:]
+            # Check hands presence
+            left_present = results.left_hand_landmarks is not None
+            right_present = results.right_hand_landmarks is not None
+            hands_present = left_present or right_present
 
-            if len(sequence) == 30:
-                res = model.predict(np.expand_dims(sequence, axis=0), verbose=0)[0]
-                best_idx = int(np.argmax(res))
-                best_prob = float(res[best_idx])
-                predictions.append(best_idx)
+            # Extract normalized features
+            lh = np.array([[lm.x, lm.y, lm.z] for lm in results.left_hand_landmarks.landmark], dtype=np.float32).flatten() if left_present else np.zeros(63, dtype=np.float32)
+            rh = np.array([[lm.x, lm.y, lm.z] for lm in results.right_hand_landmarks.landmark], dtype=np.float32).flatten() if right_present else np.zeros(63, dtype=np.float32)
+            if results.pose_landmarks:
+                pose = np.array([[lm.x, lm.y, lm.z, lm.visibility] for lm in results.pose_landmarks.landmark[:25]], dtype=np.float32).flatten()
+            else:
+                pose = np.zeros(100, dtype=np.float32)
 
-                # Temporal consistency check (at least 8 out of last 10 frames agree)
-                if len(predictions) > 10:
-                    predictions = predictions[-10:]
+            norm_frame = normalizer.normalize_frame(lh, rh, pose)
+            flags = np.array([float(left_present), float(right_present)], dtype=np.float32)
+            feat_454 = velocity_computer.build_full_feature(norm_frame, flags)
 
-                if predictions.count(best_idx) >= 8 and best_prob > threshold:
+            buffer.append(feat_454)
+            if len(buffer) > max_buf_len:
+                buffer.pop(0)
+
+            # Run inference if hands are active and buffer is ready
+            if hands_present and len(buffer) >= 10:
+                seq_tensor = torch.tensor(np.array(buffer), dtype=torch.float32).unsqueeze(0).to(device)
+                mask = torch.ones(1, len(buffer), dtype=torch.bool, device=device)
+
+                with torch.no_grad():
+                    logits = model(seq_tensor, mask=mask)
+                    probs = torch.softmax(logits, dim=-1).squeeze(0).cpu().numpy()
+
+                best_idx = int(np.argmax(probs))
+                best_prob = float(probs[best_idx])
+                predictions_history.append(best_idx)
+
+                if len(predictions_history) > 10:
+                    predictions_history = predictions_history[-10:]
+
+                # Require consensus across recent frames
+                from collections import Counter
+                mode_idx, mode_count = Counter(predictions_history[-5:]).most_common(1)[0]
+                if mode_idx == best_idx and mode_count >= 3 and best_prob > threshold:
                     sign_label = actions[best_idx]
+                    if sentence_finalized:
+                        sentence_signs = []
+                        sentence_finalized = False
+
                     if not sentence_signs or sentence_signs[-1] != sign_label:
                         sentence_signs.append(sign_label)
-                        if len(sentence_signs) > 6:
-                            sentence_signs = sentence_signs[-6:]
+                        last_sign_time = now
+                        if len(sentence_signs) > 8:
+                            sentence_signs = sentence_signs[-8:]
                         formatted_sentence = grammar.correct(sentence_signs)
 
-                image = prob_viz_top5(res, actions, image)
+                image = prob_viz_top5(probs, actions, image)
 
-            # Subtitle Banner (bottom or top)
+            # Auto-finalize sentence when hands are lowered or paused for > 1.3s
+            if sentence_signs and not sentence_finalized:
+                pause_limit = 1.0 if not hands_present else 1.5
+                if (now - last_sign_time) >= pause_limit:
+                    sentence_finalized = True
+                    formatted_sentence = grammar.correct(sentence_signs)
+
+            # Draw Subtitle Banner on top of frame
             h, w = image.shape[:2]
-            cv2.rectangle(image, (0, 0), (w, 45), (15, 23, 42), -1)
+            overlay = image.copy()
+            cv2.rectangle(overlay, (0, 0), (w, 48), (15, 23, 42), -1)
+            cv2.addWeighted(overlay, 0.85, image, 0.15, 0, image)
+
             display_text = formatted_sentence if formatted_sentence else "Listening for signs..."
-            cv2.putText(
-                image,
-                display_text,
-                (15, 30),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (255, 255, 255),
-                2,
-                cv2.LINE_AA,
-            )
+            text_color = (16, 185, 129) if sentence_finalized else (255, 255, 255)
+            cv2.putText(image, display_text, (15, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, text_color, 2, cv2.LINE_AA)
 
             cv2.imshow("SignVision - Real-Time Recognition", image)
 
@@ -174,6 +212,8 @@ def run_realtime(model_path="action.h5", threshold=0.5):
             elif key == ord("r"):
                 sentence_signs = []
                 formatted_sentence = ""
+                sentence_finalized = False
+                buffer = []
 
         cap.release()
         cv2.destroyAllWindows()
