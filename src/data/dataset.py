@@ -70,9 +70,10 @@ class SignLanguageDataset(Dataset):
         for cls in classes:
             cls_dir = os.path.join(data_dir, cls)
             for fname in os.listdir(cls_dir):
-                if fname.endswith(".npy"):
+                if fname.endswith(".npy") and not fname.startswith("._"):
                     self.file_paths.append(os.path.join(cls_dir, fname))
                     self.labels.append(cls)
+
 
         self.encoded_labels = self.label_encoder.transform(self.labels)
         self.num_classes = len(classes)

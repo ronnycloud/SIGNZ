@@ -94,10 +94,16 @@ def train(
     actions = dataset.classes
     active_model = model_cfg.get("active_model", "bilstm_attention")
 
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    dataset.save_label_map(os.path.join(checkpoint_dir, "label_map.json"))
+    with open("action_labels.json", "w", encoding="utf-8") as f:
+        json.dump(list(actions), f, indent=2)
+
     print(f"[Train] Classes: {num_classes}")
     print(f"[Train] Samples: {len(dataset)}")
     print(f"[Train] Architecture: {active_model}")
     print(f"[Train] Epochs: {epochs}, Batch: {batch_size}, LR: {learning_rate}")
+
 
     # ---- Model ----
     model = build_model_from_config(model_cfg, num_classes=num_classes)
