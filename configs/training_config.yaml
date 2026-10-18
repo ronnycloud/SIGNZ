@@ -3,41 +3,42 @@
 # =============================================================================
 
 training:
-  batch_size: 32
+  batch_size: 16
   learning_rate: 0.001
   weight_decay: 0.0001
   optimizer: "adamw"           # Options: adam, adamw, sgd
   scheduler: "cosine_annealing"  # Options: cosine_annealing, step, plateau
   scheduler_params:
-    T_max: 50                  # For cosine annealing: period in epochs
+    T_max: 80                  # For cosine annealing: period in epochs
     eta_min: 0.00001           # Minimum learning rate
-  epochs: 200
-  early_stopping_patience: 20
-  mixed_precision: true        # Use AMP for faster training on GPU
+  epochs: 80
+  early_stopping_patience: 30
+  mixed_precision: false       # CPU execution
   gradient_clip_norm: 1.0
-  label_smoothing: 0.1
+  label_smoothing: 0.05        # Reduced smoothing for sharper class discrimination
 
 data:
   data_path: "dataset/MP_Data"
-  max_sequence_length: 90      # Maximum frames per gesture clip
+  max_sequence_length: 60      # Maximum frames per gesture clip
   min_sequence_length: 10      # Minimum frames (shorter clips are padded)
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
   num_workers: 0
-  pin_memory: true
+  pin_memory: false
 
 augmentation:
   enabled: true
   temporal_jitter: true
   temporal_jitter_range: 2     # ±N frames skip/repeat
   spatial_noise: true
-  spatial_noise_std: 0.005
+  spatial_noise_std: 0.003
   scale_variation: true
-  scale_range: [0.9, 1.1]
-  mirror: true                 # Swap left/right hands
+  scale_range: [0.95, 1.05]
+  mirror: false                # Disabled: ASL is handedness-specific
   speed_variation: true
-  speed_range: [0.8, 1.2]
+  speed_range: [0.9, 1.1]
+
 
 logging:
   log_dir: "runs"
